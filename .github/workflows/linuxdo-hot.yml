@@ -1,0 +1,42 @@
+name: Fetch Linux.do Hot
+
+"on":
+  schedule:
+    # 北京时间每天 05:30 和 17:30（= UTC 21:30 和 09:30）
+    # 早上那次在日报（07:00）之前跑，保证有新鲜数据
+    - cron: '30 21 * * *'
+    - cron: '30 9 * * *'
+  workflow_dispatch: # 支持手动触发
+
+permissions:
+  contents: write
+
+jobs:
+  fetch-hot:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install requests beautifulsoup4
+
+      - name: Fetch Linux.do hot topics
+        run: python3 fetch_linuxdo_hot.py
+
+      - name: Commit and push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add hot.json
+          if git diff --cached --quiet; then
+            echo "hot.json 无变化，跳过提交"
+          else
+            git commit -m "Update linux.do hot topics [$(TZ=Asia/Shanghai date +%Y-%m-%d_%H:%M)]"
+            git push
+          fi
