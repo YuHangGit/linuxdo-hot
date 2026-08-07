@@ -140,6 +140,9 @@ def main():
                 text = fetch_playwright(url)
                 parsed = parse_html(text) if name == "HTML" else parse_rss(text)
                 print(f"  playwright/{name}: 拿到 {len(parsed)} 条")
+                # 调试：保存原始 HTML（前 500 字符摘要到日志）
+                preview = re.sub(r"\s+", " ", text[:300])
+                print(f"  playwright/{name} 内容预览: {preview[:200]}")
                 if parsed:
                     items = parsed
                     break
