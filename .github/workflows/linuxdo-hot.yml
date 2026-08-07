@@ -24,7 +24,10 @@ jobs:
           python-version: '3.11'
 
       - name: Install dependencies
-        run: pip install requests beautifulsoup4
+        run: |
+          pip install requests beautifulsoup4
+          pip install playwright
+          python3 -m playwright install --with-deps chromium
 
       - name: Fetch Linux.do hot topics
         run: python3 fetch_linuxdo_hot.py
@@ -38,5 +41,6 @@ jobs:
             echo "hot.json 无变化，跳过提交"
           else
             git commit -m "Update linux.do hot topics [$(TZ=Asia/Shanghai date +%Y-%m-%d_%H:%M)]"
+            git pull origin main --rebase || true
             git push
           fi

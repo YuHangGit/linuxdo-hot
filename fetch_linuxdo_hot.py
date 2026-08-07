@@ -4,7 +4,9 @@
 设计：GitHub Actions 定时在境外 runner 跑本脚本 → 把 hot.json commit 回仓库
 → 国内机器从 raw.githubusercontent.com 拉取。
 
-不依赖 Telegram / ScrapingAnt / 任何第三方 key，纯标准库 + requests + bs4。
+抓取策略（linux.do 有 Cloudflare 盾，403 常见）：
+1. 先试 requests + 浏览器头（轻量）
+2. 失败则用 Playwright 无头浏览器过盾（需要 playwright 依赖）
 """
 import json
 import os
@@ -12,7 +14,6 @@ import re
 import sys
 from datetime import datetime, timezone, timedelta
 
-# 允许缺失 requests/bs4 时给出明确错误
 try:
     import requests
     from bs4 import BeautifulSoup
@@ -30,21 +31,17 @@ BROWSER_HEADERS = {
     "User-Agent": UA,
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
     "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
-    "Accept-Encoding": "gzip, deflate, br",
-    "Connection": "keep-alive",
     "Upgrade-Insecure-Requests": "1",
     "Sec-Fetch-Dest": "document",
     "Sec-Fetch-Mode": "navigate",
     "Sec-Fetch-Site": "none",
     "Sec-Fetch-User": "?1",
-    "Cache-Control": "max-age=0",
-    "Referer": "https://linux.do/",
 }
 
 
-def fetch(url: str, timeout: int = 30) -> str:
+def fetch_requests(url: str, timeout: int = 30) -> str:
+    """轻量方案：requests + 浏览器头。"""
     session = requests.Session()
-    # 先访问首页种 cookie，再访问目标（部分 CF 盾要求先过首页）
     try:
         session.get("https://linux.do/", headers=BROWSER_HEADERS, timeout=timeout)
     except Exception:
@@ -52,6 +49,26 @@ def fetch(url: str, timeout: int = 30) -> str:
     resp = session.get(url, headers=BROWSER_HEADERS, timeout=timeout)
     resp.raise_for_status()
     return resp.text
+
+
+def fetch_playwright(url: str, timeout: int = 60) -> str:
+    """重型方案：Playwright 无头浏览器过 Cloudflare 盾。"""
+    from playwright.sync_api import sync_playwright
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True, args=["--no-sandbox"])
+        ctx = browser.new_context(
+            user_agent=UA,
+            locale="zh-CN",
+            viewport={"width": 1280, "height": 900},
+        )
+        page = ctx.new_page()
+        page.goto("https://linux.do/", wait_until="domcontentloaded", timeout=timeout)
+        page.wait_for_timeout(3000)  # 等 CF 盾 JS 执行
+        page.goto(url, wait_until="domcontentloaded", timeout=timeout)
+        page.wait_for_timeout(3000)
+        html = page.content()
+        browser.close()
+        return html
 
 
 def parse_rss(xml_text: str) -> list[dict]:
@@ -100,18 +117,32 @@ def main():
     items = []
     errors = []
 
-    # 优先 RSS（Discourse 标准，通常不被 CF 拦截）
+    # 第一轮：requests 轻量抓取（RSS 优先，Discourse 标准，通常不被 CF 拦截）
     for name, url in (("RSS", TOP_RSS_URL), ("HTML", TARGET_URL)):
         try:
-            text = fetch(url)
+            text = fetch_requests(url)
             parsed = parse_rss(text) if name == "RSS" else parse_html(text)
-            print(f"  {name}: 拿到 {len(parsed)} 条")
+            print(f"  requests/{name}: 拿到 {len(parsed)} 条")
             if parsed:
                 items = parsed
                 break
         except Exception as e:
             errors.append(f"{name}: {e}")
-            print(f"  {name} 失败: {e}")
+            print(f"  requests/{name} 失败: {e}")
+
+    # 第二轮：Playwright 无头浏览器过 CF 盾
+    if not items:
+        for name, url in (("HTML", TARGET_URL), ("RSS", TOP_RSS_URL)):
+            try:
+                text = fetch_playwright(url)
+                parsed = parse_html(text) if name == "HTML" else parse_rss(text)
+                print(f"  playwright/{name}: 拿到 {len(parsed)} 条")
+                if parsed:
+                    items = parsed
+                    break
+            except Exception as e:
+                errors.append(f"playwright/{name}: {e}")
+                print(f"  playwright/{name} 失败: {e}")
 
     if not items:
         payload = {
