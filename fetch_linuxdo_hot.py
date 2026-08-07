@@ -12,6 +12,7 @@ import json
 import os
 import re
 import sys
+import time
 from datetime import datetime, timezone, timedelta
 
 try:
@@ -133,22 +134,26 @@ def main():
             errors.append(f"{name}: {e}")
             print(f"  requests/{name} 失败: {e}")
 
-    # 第二轮：Playwright 无头浏览器过 CF 盾
+    # 第二轮：Playwright 无头浏览器过 CF 盾（带 3 次背退重试，应对 TMR）
     if not items:
-        for name, url in (("HTML", TARGET_URL), ("RSS", TOP_RSS_URL)):
-            try:
-                text = fetch_playwright(url)
-                parsed = parse_html(text) if name == "HTML" else parse_rss(text)
-                print(f"  playwright/{name}: 拿到 {len(parsed)} 条")
-                # 调试：保存原始 HTML（前 500 字符摘要到日志）
-                preview = re.sub(r"\s+", " ", text[:300])
-                print(f"  playwright/{name} 内容预览: {preview[:200]}")
-                if parsed:
-                    items = parsed
-                    break
-            except Exception as e:
-                errors.append(f"playwright/{name}: {e}")
-                print(f"  playwright/{name} 失败: {e}")
+        for attempt in range(3):
+            for name, url in (("HTML", TARGET_URL), ("RSS", TOP_RSS_URL)):
+                try:
+                    text = fetch_playwright(url)
+                    parsed = parse_html(text) if name == "HTML" else parse_rss(text)
+                    print(f"  playwright[{attempt}]/{name}: 拿到 {len(parsed)} 条")
+                    preview = re.sub(r"\s+", " ", text[:150])
+                    print(f"  预览: {preview[:120]}")
+                    if parsed:
+                        items = parsed
+                        break
+                except Exception as e:
+                    errors.append(f"playwright/{name}: {e}")
+                    print(f"  playwright[{attempt}]/{name} 失败: {e}")
+            if items:
+                break
+            print(f"  第 {attempt+1} 轮失败，等待背退重试...")
+            time.sleep(20 * (attempt + 1))
 
     if not items:
         payload = {
