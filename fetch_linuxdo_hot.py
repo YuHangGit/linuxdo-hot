@@ -52,8 +52,11 @@ def fetch_requests(url: str, timeout: int = 30) -> str:
 
 
 def fetch_playwright(url: str, timeout: int = 60) -> str:
-    """重型方案：Playwright 无头浏览器过 Cloudflare 盾。"""
+    """重型方案：Playwright 无头浏览器过 Cloudflare 盾。
+    注意：playwright 的 timeout 参数单位是毫秒！
+    """
     from playwright.sync_api import sync_playwright
+    timeout_ms = timeout * 1000  # 秒 → 毫秒
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True, args=["--no-sandbox"])
         ctx = browser.new_context(
@@ -62,10 +65,10 @@ def fetch_playwright(url: str, timeout: int = 60) -> str:
             viewport={"width": 1280, "height": 900},
         )
         page = ctx.new_page()
-        page.goto("https://linux.do/", wait_until="domcontentloaded", timeout=timeout)
-        page.wait_for_timeout(3000)  # 等 CF 盾 JS 执行
-        page.goto(url, wait_until="domcontentloaded", timeout=timeout)
-        page.wait_for_timeout(3000)
+        page.goto("https://linux.do/", wait_until="domcontentloaded", timeout=timeout_ms)
+        page.wait_for_timeout(5000)  # 等 CF 盾 JS 执行
+        page.goto(url, wait_until="domcontentloaded", timeout=timeout_ms)
+        page.wait_for_timeout(5000)
         html = page.content()
         browser.close()
         return html
