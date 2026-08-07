@@ -26,9 +26,30 @@ UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
       "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36")
 OUTPUT_FILE = os.environ.get("OUTPUT_FILE", "hot.json")
 
+BROWSER_HEADERS = {
+    "User-Agent": UA,
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+    "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+    "Accept-Encoding": "gzip, deflate, br",
+    "Connection": "keep-alive",
+    "Upgrade-Insecure-Requests": "1",
+    "Sec-Fetch-Dest": "document",
+    "Sec-Fetch-Mode": "navigate",
+    "Sec-Fetch-Site": "none",
+    "Sec-Fetch-User": "?1",
+    "Cache-Control": "max-age=0",
+    "Referer": "https://linux.do/",
+}
+
 
 def fetch(url: str, timeout: int = 30) -> str:
-    resp = requests.get(url, headers={"User-Agent": UA}, timeout=timeout)
+    session = requests.Session()
+    # 先访问首页种 cookie，再访问目标（部分 CF 盾要求先过首页）
+    try:
+        session.get("https://linux.do/", headers=BROWSER_HEADERS, timeout=timeout)
+    except Exception:
+        pass
+    resp = session.get(url, headers=BROWSER_HEADERS, timeout=timeout)
     resp.raise_for_status()
     return resp.text
 
