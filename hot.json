@@ -1,6 +1,6 @@
 {
   "ok": false,
   "error": "RSS: 403 Client Error: Forbidden for url: https://linux.do/top.rss?period=daily; HTML: 403 Client Error: Forbidden for url: https://linux.do/hot",
-  "fetched_at": "2026-08-07 11:43:30",
+  "fetched_at": "2026-08-07 11:45:14",
   "items": []
 }
