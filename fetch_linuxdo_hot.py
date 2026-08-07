@@ -24,6 +24,11 @@ except ImportError:
 
 TARGET_URL = "https://linux.do/hot"
 TOP_RSS_URL = "https://linux.do/top.rss?period=daily"
+# linuxdo.cn / linuxdo.org 可能是官方备用域名（Cloudflare 前置），未被 TMR 时可用
+FALLBACK_TARGETS = [
+    ("linuxdo.cn", "https://linuxdo.cn/hot", "https://linuxdo.cn/top.rss"),
+    ("linuxdo.org", "https://linuxdo.org/hot", "https://linuxdo.org/top.rss"),
+]
 UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
       "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36")
 OUTPUT_FILE = os.environ.get("OUTPUT_FILE", "hot.json")
@@ -136,7 +141,8 @@ def main():
 
     # 第二轮：Playwright 无头浏览器过 CF 盾（带 3 次背退重试，应对 TMR）
     if not items:
-        for attempt in range(3):
+        # 先试主域名
+        for attempt in range(2):
             for name, url in (("HTML", TARGET_URL), ("RSS", TOP_RSS_URL)):
                 try:
                     text = fetch_playwright(url)
@@ -152,8 +158,30 @@ def main():
                     print(f"  playwright[{attempt}]/{name} 失败: {e}")
             if items:
                 break
-            print(f"  第 {attempt+1} 轮失败，等待背退重试...")
-            time.sleep(20 * (attempt + 1))
+            print(f"  主域名第 {attempt+1} 轮失败，试备用域名...")
+            break  # 主域名一轮失败直接进备用域名，不空等
+
+        # 备用域名（linuxdo.cn / linuxdo.org，独立 Cloudflare 前置）
+        if not items:
+            for domain, html_url, rss_url in FALLBACK_TARGETS:
+                print(f"  尝试备用域名 {domain}...")
+                for name, url in (("HTML", html_url), ("RSS", rss_url)):
+                    try:
+                        text = fetch_playwright(url)
+                        parsed = parse_html(text) if name == "HTML" else parse_rss(text)
+                        print(f"  {domain}[{name}]: 拿到 {len(parsed)} 条")
+                        preview = re.sub(r"\s+", " ", text[:150])
+                        print(f"  预览: {preview[:120]}")
+                        if parsed:
+                            items = parsed
+                            break
+                    except Exception as e:
+                        errors.append(f"{domain}/{name}: {e}")
+                        print(f"  {domain}[{name}] 失败: {e}")
+                if items:
+                    print(f"  ✓ 备用域名 {domain} 成功")
+                    break
+                time.sleep(5)
 
     if not items:
         payload = {
